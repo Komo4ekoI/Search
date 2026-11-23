@@ -44,6 +44,8 @@ in [ROADMAP.md](ROADMAP.md).
 
 ### Fixed
 
+- An extension's popup opens at its size the first time after a launch, instead of as a narrow strip that widens a moment later: Bitwarden came in 35 points wide, measured before its script had set its width. The size it settles at is kept from one launch to the next, where it was kept only until Search quit.
+- An extension's popup follows what it shows both ways while it is open, as in Chrome: a button in it that shows less makes it smaller, where after its first two seconds it only ever grew, and what hangs out below the page's body counts, so Shazam's list of songs makes it taller instead of scrolling inside a popup 200 points tall.
 - A saved password or verification code goes into a page only while the page is still on the same scheme, host and port it is filled for, as your card's details already did: another port of the same host gets nothing. `python3 Tests/fill_touch_id.py`
 - A store update check that fails (no network yet after the Mac wakes, the store not answering) is tried again an hour later, then after two, four… hours, never more than a day apart, instead of counting as the day's check: the day was stamped before the check ran, so one failure held back every store extension's updates for 20 hours, uBlock Origin Lite's too. `python3 Tests/extension_store_update.py` (idea 992)
 - Extensions from the Chrome Web Store update to the version a new install gets: the daily check now asks the store as Chrome's Update button does (installsource=ondemand, with Chrome's os, arch and product details). Asked as a background check, the store answered "no update" for Bitwarden 2026.11.0 from 19 Nov whatever version was named, so Bitwarden stayed at 2026.10.2. (idea 992)
