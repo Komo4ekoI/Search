@@ -33,6 +33,8 @@ struct SideBar: View {
     @State private var landing = false
     /// The width the column had when the edge was picked up.
     @State private var grabbed: CGFloat?
+    /// The edge held at the line, stopped short of the strip (narrowPush).
+    @State private var atLine = false
     /// The width while the edge is held. The setting is written once, when
     /// it is let go: written on every step, each one was a write to the
     /// settings and a change heard by every window and all that is in it.
@@ -166,15 +168,25 @@ struct SideBar: View {
     private static let footBox: CGFloat = 26 + 10
     /// How far the strip's edge is pulled before the titles come back.
     static let stripPull: CGFloat = 24
+    /// How far past the line the edge is pushed before the titles give way
+    /// to the strip: the column stops at the line first, and only a push on
+    /// past it narrows it. Straight from titles to the strip at the line,
+    /// a pull that only meant to make the column narrow took it to icons.
+    static let narrowPush: CGFloat = 28
 
     /// The edge held where it would make the column `wanted` wide: the width
-    /// to draw it at, or, narrowing to icons and past the line, the strip
-    /// (no width held; the strip's is fixed) — the same in either direction
-    /// while it is held.
-    static func held(_ wanted: CGFloat, narrows: Bool) -> (narrow: Bool, width: CGFloat?) {
+    /// to draw it at, or, narrowing to icons, the strip (no width held; the
+    /// strip's is fixed). With titles, it stops at the line and becomes the
+    /// strip only `narrowPush` past it; as the strip (`narrowed`), it comes
+    /// back to titles at the line — the push undone, as a pull out of the
+    /// strip is (`stripPull`).
+    static func held(_ wanted: CGFloat, narrows: Bool, narrowed: Bool = false) -> (narrow: Bool, width: CGFloat?) {
         guard narrows else { return (false, min(Metrics.sideMax, max(Metrics.sideMin, wanted))) }
-        if wanted < Metrics.narrowLine { return (true, nil) }
-        return (false, min(Metrics.sideMax, wanted))
+        if narrowed {
+            return wanted < Metrics.narrowLine ? (true, nil) : (false, min(Metrics.sideMax, wanted))
+        }
+        if wanted < Metrics.narrowLine - narrowPush { return (true, nil) }
+        return (false, min(Metrics.sideMax, max(Metrics.narrowLine, wanted)))
     }
 
     /// `prefs`: back, forward and reload as Settings leaves them (idea 815).
@@ -466,10 +478,19 @@ struct SideBar: View {
                         if grabbed == nil { grabbed = strip ? Metrics.narrowLine - SideBar.stripPull : prefs.columnWidth }
                         let delta = onRight ? -value.translation.width : value.translation.width
                         let wanted = (grabbed ?? prefs.columnWidth) + delta
-                        let held = SideBar.held(wanted, narrows: prefs.narrowsToIcons)
+                        let held = SideBar.held(wanted, narrows: prefs.narrowsToIcons, narrowed: prefs.narrowed)
                         if held.narrow != prefs.narrowed, prefs.narrowsToIcons {
+                            // Felt as well as seen, on a trackpad that can.
+                            NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
                             withAnimation(Motion.glide) { prefs.narrowed = held.narrow }
                         }
+                        // Stopped at the line on the way to the strip: a
+                        // tap as it stops, so the push past it is a choice.
+                        let stopped = prefs.narrowsToIcons && !held.narrow && wanted < Metrics.narrowLine
+                        if stopped, !atLine {
+                            NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+                        }
+                        if atLine != stopped { atLine = stopped }
                         live = held.width
                         onDrag(live)
                     }
@@ -477,6 +498,7 @@ struct SideBar: View {
                         if let live { prefs.sideWidth = live }
                         live = nil
                         grabbed = nil
+                        atLine = false
                         onDrag(nil)
                     }
             )
