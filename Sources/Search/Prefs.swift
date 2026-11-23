@@ -94,6 +94,40 @@ enum SidebarPosition: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+/// Which of the foot's buttons go up beside back, forward and reload with
+/// Buttons at the top (Preferences.doorsUp); the rest stay at the foot.
+enum DoorsUpSet: String, CaseIterable, Identifiable {
+    /// The puzzle and bookmarks; pinned extensions stay at the foot.
+    case extensionsAndBookmarks
+    /// The puzzle, the pinned extensions beside it, and bookmarks.
+    case pinnedAndBookmarks
+    /// Every button the foot has, the foot gone: as it always was.
+    case all
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .extensionsAndBookmarks: return "Extensions and bookmarks"
+        case .pinnedAndBookmarks: return "Extensions, pinned ones and bookmarks"
+        case .all: return "All buttons"
+        }
+    }
+
+    /// The pinned extensions go up with the puzzle.
+    var pins: Bool { self != .extensionsAndBookmarks }
+
+    /// This one, then each that takes fewer, as tried in turn when the
+    /// lights' row has too little room (SideBar.doorsUpLevel).
+    var fallbacks: [DoorsUpSet] {
+        switch self {
+        case .all: return [.all, .pinnedAndBookmarks, .extensionsAndBookmarks]
+        case .pinnedAndBookmarks: return [.pinnedAndBookmarks, .extensionsAndBookmarks]
+        case .extensionsAndBookmarks: return [.extensionsAndBookmarks]
+        }
+    }
+}
+
 /// Where the tabs go when the settings have no line for it. Down the side,
 /// as Arc has them, for a Search opened for the first time (Drice, 17 Nov
 /// 2026); across the top before that. Nobody already using Search sees the
@@ -246,6 +280,10 @@ final class Preferences: ObservableObject {
     /// Off unless asked for.
     @Published var doorsUp: Bool {
         didSet { store.set(doorsUp, forKey: "sidebar.doorsUp") }
+    }
+    /// Which of them go up (DoorsUpSet); all of them unless asked otherwise.
+    @Published var doorsUpSet: DoorsUpSet {
+        didSet { store.set(doorsUpSet.rawValue, forKey: "sidebar.doorsUpSet") }
     }
     /// A door right of the window's buttons that folds the column away, as
     /// ⌘S does (see FoldDoor). Only with titles in the column; off unless
@@ -1246,6 +1284,7 @@ final class Preferences: ObservableObject {
         slidesColumn = store.bool(forKey: Motion.slidesKey)
         roomyTabs = store.bool(forKey: "sidebar.roomy")
         doorsUp = store.bool(forKey: "sidebar.doorsUp")
+        doorsUpSet = store.string(forKey: "sidebar.doorsUpSet").flatMap(DoorsUpSet.init) ?? .all
         foldButton = store.bool(forKey: "sidebar.foldButton")
         sideIcons = store.bool(forKey: "sidebar.icons")
         foldsToIcons = store.bool(forKey: "sidebar.foldIcons")
@@ -1540,6 +1579,7 @@ final class Preferences: ObservableObject {
         take(\.slidesColumn, store.bool(forKey: Motion.slidesKey))
         take(\.roomyTabs, store.bool(forKey: "sidebar.roomy"))
         take(\.doorsUp, store.bool(forKey: "sidebar.doorsUp"))
+        take(\.doorsUpSet, "sidebar.doorsUpSet", store.string(forKey: "sidebar.doorsUpSet").flatMap(DoorsUpSet.init), or: .all)
         take(\.foldButton, store.bool(forKey: "sidebar.foldButton"))
         take(\.sideIcons, store.bool(forKey: "sidebar.icons"))
         take(\.foldsToIcons, store.bool(forKey: "sidebar.foldIcons"))

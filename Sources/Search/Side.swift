@@ -135,7 +135,8 @@ struct SideBar: View {
     /// there: how many pinned extensions show, not changing under the pointer.
     private var upRoom: CGFloat {
         max(SideBar.beyondHelm(prefs.columnWidth, fullScreen: browser.fullScreen,
-                               fold: SideBar.folds(prefs, width: prefs.columnWidth, fullScreen: browser.fullScreen), prefs: prefs), SideFoot.keptWidth(prefs, spaces: SpaceButtons.count(prefs, browser.spaces)))
+                               fold: SideBar.folds(prefs, width: prefs.columnWidth, fullScreen: browser.fullScreen), prefs: prefs),
+            SideFoot.keptWidth(prefs, set: upLevel, spaces: SpaceButtons.count(prefs, browser.spaces), pinned: pinsSeen))
     }
     private var doorsUp: Bool { SideBar.doorsUp(prefs, width: width, fullScreen: browser.fullScreen, spaces: SpaceButtons.count(prefs, browser.spaces)) }
     /// Where the doors are: up in the lights' row or down at the foot. Not
@@ -145,6 +146,25 @@ struct SideBar: View {
     @State private var drawnUp: Bool?
     private var doorsTop: Bool { drawnUp ?? doorsUp }
     private var doorsFoot: Bool { !doorsTop }
+    /// With the doors up and only some of them gone (DoorsUpSet), whether
+    /// the foot still has one of the others to show: told by the foot.
+    @State private var belowKept = false
+    /// Which doors are up, while they are: those asked for, or fewer where
+    /// the row has too little room for them, at the width let go at so it
+    /// doesn't change under the pointer; with the edge held past even the
+    /// fewest, those (settleDoors takes them down once they're under the helm).
+    private var upLevel: DoorsUpSet {
+        SideBar.doorsUpLevel(prefs, width: prefs.columnWidth, fullScreen: browser.fullScreen,
+                             spaces: SpaceButtons.count(prefs, browser.spaces), pinned: pinsSeen) ?? .extensionsAndBookmarks
+    }
+    /// How many extensions are pinned, as last heard (PinsWatch): one
+    /// pinned or let go changes what fits up there.
+    @State private var pinsSeen = SideFoot.pinnedCount
+    /// The doors up, only some of them: the rest at the foot.
+    private var partlyUp: Bool { doorsTop && upLevel != .all }
+    /// The foot drawn: its doors are down there, or some of them are left
+    /// there with the others up.
+    private var footShown: Bool { doorsFoot || partlyUp && belowKept }
     /// Room past what the doors need before, with the edge held, they come
     /// back up: on the line itself, they went up and down with the pointer.
     private static let doorsSlack: CGFloat = 12
@@ -215,8 +235,21 @@ struct SideBar: View {
     /// downloads counted whether running or not, so a download starting
     /// doesn't send them all back down.
     @MainActor static func doorsUp(_ prefs: Preferences, width: CGFloat, fullScreen: Bool, spaces: Int = 0) -> Bool {
-        prefs.doorsUp && prefs.sidebar && !prefs.iconColumn
-            && beyondHelm(width, fullScreen: fullScreen, fold: folds(prefs, width: width, fullScreen: fullScreen), prefs: prefs) >= SideFoot.keptWidth(prefs, spaces: spaces)
+        doorsUpLevel(prefs, width: width, fullScreen: fullScreen, spaces: spaces) != nil
+    }
+
+    /// Which doors go up (DoorsUpSet): the ones asked for if they all fit
+    /// there, pinned extensions counted, else the next that takes fewer,
+    /// down to the puzzle and bookmarks alone; nil, none — all at the foot.
+    /// Asked for with every door and too little room for them, the doors
+    /// all went back down; a pinned extension without room up there was
+    /// left out of both rows.
+    @MainActor static func doorsUpLevel(_ prefs: Preferences, width: CGFloat, fullScreen: Bool, spaces: Int = 0,
+                                        pinned: Int? = nil) -> DoorsUpSet? {
+        guard prefs.doorsUp, prefs.sidebar, !prefs.iconColumn else { return nil }
+        let room = beyondHelm(width, fullScreen: fullScreen, fold: folds(prefs, width: width, fullScreen: fullScreen), prefs: prefs)
+        let pinned = pinned ?? SideFoot.pinnedCount
+        return prefs.doorsUpSet.fallbacks.first { room >= SideFoot.keptWidth(prefs, set: $0, spaces: spaces, pinned: pinned) }
     }
 
     var body: some View {
@@ -283,7 +316,8 @@ struct SideBar: View {
                     // moved, they were laid out again at every frame of it.
                     .overlay(alignment: .trailing) {
                         if prefs.doorsUp {
-                            SideFoot(browser: browser, prefs: prefs, fetches: browser.fetches, up: true, live: doorsTop, width: upRoom)
+                            SideFoot(browser: browser, prefs: prefs, fetches: browser.fetches, up: true, live: doorsTop, width: upRoom,
+                                     upLevel: upLevel)
                                 .fixedSize()
                                 .opacity(doorsTop ? 1 : 0)
                                 .animation(doorsTop ? SideBar.doorsIn : SideBar.doorsOut, value: doorsTop)
@@ -312,7 +346,7 @@ struct SideBar: View {
             // and of what plays in another tab, over the foot.
             // The rows' end with the foot, as it rises and goes: this inset
             // alone animated, not the rows under it, which only take it.
-            .animation(doorsFoot ? SideBar.footIn : SideBar.doorsOut) {
+            .animation(footShown ? SideBar.footIn : SideBar.doorsOut) {
                 $0.modifier(EndInset(bottom: footHeight))
             }
             .padding(.bottom, (browser.player == nil ? 0 : rowHeight + SideBar.playerGap)
@@ -344,13 +378,13 @@ struct SideBar: View {
                     foot
                         // As far as the rows' end moves (10 to footBox), so the
                         // two go up together, the doors just under the edge.
-                        .modifier(Rise(y: doorsFoot ? 0 : SideBar.footBox - 10))
-                        .animation(SideBar.footIn, value: doorsFoot)
-                        .frame(height: icons ? nil : doorsFoot ? SideBar.footBox : 0, alignment: .top)
+                        .modifier(Rise(y: footShown ? 0 : SideBar.footBox - 10))
+                        .animation(SideBar.footIn, value: footShown)
+                        .frame(height: icons ? nil : footShown ? SideBar.footBox : 0, alignment: .top)
                         .clipped()
-                        .transaction(value: doorsFoot) { $0.animation = nil }
-                        .allowsHitTesting(doorsFoot)
-                        .accessibilityHidden(!doorsFoot)
+                        .transaction(value: footShown) { $0.animation = nil }
+                        .allowsHitTesting(footShown)
+                        .accessibilityHidden(!footShown)
                 }
             }
         }
@@ -371,6 +405,11 @@ struct SideBar: View {
                 drawnUp = was
             }
             settleDoors()
+        }
+        .background {
+            if #available(macOS 15.4, *), prefs.doorsUp {
+                PinsWatch(extensions: .shared) { if pinsSeen != $0 { pinsSeen = $0 } }
+            }
         }
         .onChange(of: icons) { _, _ in
             // Into icons only or out of it, the doors are simply where they go.
@@ -1659,7 +1698,7 @@ struct SideBar: View {
     /// The foot's door and its margin beneath; with icons only, its doors
     /// one above the other.
     private var footHeight: CGFloat {
-        if !doorsFoot || stripUp { return 10 }
+        if !footShown || stripUp { return 10 }
         return icons ? stackedDoors : SideBar.footBox
     }
     /// Between what plays in another tab and the foot's doors.
@@ -1692,7 +1731,9 @@ struct SideBar: View {
         guard !icons else { return }
         guard prefs.doorsUp, prefs.sidebar else { drawnUp = nil; return }
         let up: Bool
-        let kept = SideFoot.keptWidth(prefs, spaces: SpaceButtons.count(prefs, browser.spaces))
+        // Up at all: the fewest of the doors fit (DoorsUpSet.fallbacks).
+        let kept = SideFoot.keptWidth(prefs, set: .extensionsAndBookmarks, spaces: SpaceButtons.count(prefs, browser.spaces),
+                                      pinned: SideFoot.pinnedCount)
         if doorsTop || live == nil {
             up = doorsUp
         } else {
@@ -1707,7 +1748,8 @@ struct SideBar: View {
 
     /// One small door at the bottom: the settings.
     private var foot: some View {
-        SideFoot(browser: browser, prefs: prefs, fetches: browser.fetches, vertical: icons, live: doorsFoot, width: width)
+        SideFoot(browser: browser, prefs: prefs, fetches: browser.fetches, vertical: icons, live: footShown, width: width,
+                 leftBelow: partlyUp ? upLevel : nil, kept: { kept in if belowKept != kept { belowKept = kept } })
     }
 
 }
@@ -1717,7 +1759,7 @@ struct SideBar: View {
 /// overflow off each side (#535). The space's door, the puzzle, bookmarks and
 /// downloads stay put; the pinned extensions that don't fit give way, from
 /// the last, and are still in the puzzle's list.
-private struct SideFoot: View {
+struct SideFoot: View {
     @ObservedObject var browser: Browser
     @ObservedObject var prefs: Preferences
     @ObservedObject var fetches: Fetches
@@ -1732,6 +1774,18 @@ private struct SideFoot: View {
     var live = true
     /// The column's width, as it is drawn; up, the room right of the helm.
     let width: CGFloat
+    /// At the foot while the doors are up and only some of them went
+    /// (Preferences.doorsUpSet, not .all): which went, so the foot keeps
+    /// the rest. Nil: the foot has them all.
+    var leftBelow: DoorsUpSet? = nil
+    /// Told whether the foot has a door to show, as left below: the column
+    /// keeps no empty foot (SideBar.belowKept).
+    var kept: ((Bool) -> Void)? = nil
+
+    /// Up: which doors are here — every one, or only the puzzle and
+    /// bookmarks, with the pinned extensions or without (SideBar.upLevel).
+    var upLevel: DoorsUpSet = .all
+    private var upSet: DoorsUpSet { upLevel }
 
     var body: some View {
         if vertical {
@@ -1752,23 +1806,44 @@ private struct SideFoot: View {
             // The space's name, after a switch, goes to the foot of the page
             // instead (Browser.switchSpace): beside the dot it would lie
             // over the helm.
+            // Only the puzzle and bookmarks, with the pinned extensions or
+            // without, when that is what goes up: the rest at the foot.
             HStack(spacing: 2) {
-                if prefs.showsProfileDoor { ProfileBadge(browser: browser) }
-                if prefs.usesSpaces && !prefs.showsSpaceButtons { SpaceDot(browser: browser, names: false) }
-                FetchDoor(browser: browser, fetches: fetches, arrowEdge: .bottom, live: live)
+                if upSet == .all {
+                    if prefs.showsProfileDoor { ProfileBadge(browser: browser) }
+                    if prefs.usesSpaces && !prefs.showsSpaceButtons { SpaceDot(browser: browser, names: false) }
+                    FetchDoor(browser: browser, fetches: fetches, arrowEdge: .bottom, live: live)
+                }
                 if !prefs.hidesBookmarksDoor { BookmarkDoor(browser: browser, arrowEdge: .bottom) }
-                SpaceButtons(browser: browser)
-                ExtensionSlot(browser: browser, edge: .bottom, room: room, puzzle: !prefs.hidesExtensionsDoor, live: live)
+                if upSet == .all { SpaceButtons(browser: browser) }
+                ExtensionSlot(browser: browser, edge: .bottom, room: room, puzzle: !prefs.hidesExtensionsDoor, live: live,
+                              pins: upSet.pins)
             }
         } else {
+            let side: Edge = prefs.sidePosition == .right ? .leading : .trailing
+            // What went up isn't here: the bookmarks, the puzzle, and the
+            // pinned extensions if they went with it.
+            let went = leftBelow
             HStack(spacing: 2) {
-                if prefs.showsProfileDoor { ProfileBadge(browser: browser) }
-                if prefs.usesSpaces && !prefs.showsSpaceButtons { SpaceDot(browser: browser) }
-                ExtensionSlot(browser: browser, edge: prefs.sidePosition == .right ? .leading : .trailing, room: room, puzzle: !prefs.hidesExtensionsDoor, live: live)
-                if !prefs.hidesBookmarksDoor { BookmarkDoor(browser: browser, arrowEdge: prefs.sidePosition == .right ? .leading : .trailing) }
-                SpaceButtons(browser: browser, squeezes: true)
-                // Only while a download is running, and a moment after.
-                FetchDoor(browser: browser, fetches: fetches, arrowEdge: prefs.sidePosition == .right ? .leading : .trailing, live: live)
+                HStack(spacing: 2) {
+                    if prefs.showsProfileDoor { ProfileBadge(browser: browser) }
+                    if prefs.usesSpaces && !prefs.showsSpaceButtons { SpaceDot(browser: browser) }
+                    if let went {
+                        if !went.pins {
+                            ExtensionSlot(browser: browser, edge: side, room: room, puzzle: false, live: live, menu: false)
+                        }
+                    } else {
+                        ExtensionSlot(browser: browser, edge: side, room: room, puzzle: !prefs.hidesExtensionsDoor, live: live)
+                    }
+                    if went == nil, !prefs.hidesBookmarksDoor { BookmarkDoor(browser: browser, arrowEdge: side) }
+                    SpaceButtons(browser: browser, squeezes: true)
+                    // Only while a download is running, and a moment after.
+                    FetchDoor(browser: browser, fetches: fetches, arrowEdge: side, live: live)
+                }
+                // Whether anything is left here, measured: what each door
+                // shows is its own to say (a download coming in, an
+                // extension pinned), and the column keeps no empty foot.
+                .onGeometryChange(for: Bool.self, of: { $0.size.width > 1 }) { kept?($0) }
                 // With a button per space the row is centred under the
                 // column: at one side, a row of spaces read as a toolbar
                 // that had slid off. Otherwise at the side, as it always was.
@@ -1794,28 +1869,49 @@ private struct SideFoot: View {
         return kept
     }
 
-    /// The doors that always show, and downloads, side by side: what the
-    /// lights' row must have to take them (SideBar.doorsUp).
-    @MainActor static func keptWidth(_ prefs: Preferences, spaces: Int = 0) -> CGFloat {
-        var kept = 1 + spaces  // downloads and a button per space
+    /// The doors that go up as `set` has it, side by side: what the lights'
+    /// row must have to take them (SideBar.doorsUpLevel). Every door, with
+    /// downloads whether running or not; the pinned extensions too where
+    /// they go up, so none is left without a place.
+    @MainActor static func keptWidth(_ prefs: Preferences, set: DoorsUpSet, spaces: Int = 0, pinned: Int = 0) -> CGFloat {
+        var kept = 0
         if !prefs.hidesExtensionsDoor { kept += 1 }  // the puzzle
         if !prefs.hidesBookmarksDoor { kept += 1 }
-        if prefs.usesSpaces && !prefs.showsSpaceButtons { kept += 1 }  // the dot
-        if prefs.showsProfileDoor { kept += 1 }
-        return CGFloat(kept) * (26 + 2) - 2
+        if set.pins { kept += pinned }
+        if set == .all {
+            kept += 1 + spaces  // downloads and a button per space
+            if prefs.usesSpaces && !prefs.showsSpaceButtons { kept += 1 }  // the dot
+            if prefs.showsProfileDoor { kept += 1 }
+        }
+        return max(0, CGFloat(kept) * (26 + 2) - 2)
+    }
+
+    /// The pinned extensions with a button: what goes beside the puzzle.
+    @MainActor static var pinnedCount: Int {
+        guard #available(macOS 15.4, *) else { return 0 }
+        return PinsWatch.count(.shared)
     }
 
     /// How many pinned extensions fit beside the doors that stay. Every door
     /// is 26 points, with 2 between them.
     private var room: Int {
         let door: CGFloat = 26 + 2
-        var kept = SpaceButtons.count(prefs, browser.spaces)  // the spaces' buttons
-        if !prefs.hidesExtensionsDoor { kept += 1 }  // the puzzle
-        if !prefs.hidesBookmarksDoor { kept += 1 }
-        if prefs.usesSpaces && !prefs.showsSpaceButtons { kept += 1 }  // the dot
-        if prefs.showsProfileDoor { kept += 1 }
-        // Up, downloads keep their place whether running or not.
-        if up || FetchDoor.shows(fetches, prefs, hanging: browser.downloadsHanging) { kept += 1 }
+        // Up with only some of the doors, the rest aren't beside them; at
+        // the foot with the others up, the puzzle and bookmarks aren't.
+        let upper = up && upSet != .all
+        let lower = leftBelow != nil
+        var kept = 0
+        if !lower {
+            if !prefs.hidesExtensionsDoor { kept += 1 }  // the puzzle
+            if !prefs.hidesBookmarksDoor { kept += 1 }
+        }
+        if !upper {
+            kept += SpaceButtons.count(prefs, browser.spaces)  // the spaces' buttons
+            if prefs.usesSpaces && !prefs.showsSpaceButtons { kept += 1 }  // the dot
+            if prefs.showsProfileDoor { kept += 1 }
+            // Up, downloads keep their place whether running or not.
+            if up || FetchDoor.shows(fetches, prefs, hanging: browser.downloadsHanging) { kept += 1 }
+        }
         let free = (up ? width : width - 2 * 10) + 2 - CGFloat(kept) * door
         return max(0, Int((free / door).rounded(.down)))
     }
@@ -2694,5 +2790,23 @@ private struct FoldDoor: View {
             browser.toggleFold()
         }
         .accessibilityLabel(browser.folded ? "Show Sidebar" : "Hide Sidebar")
+    }
+}
+
+/// Says how many extensions are pinned, again each time it changes: the
+/// column doesn't follow the extensions itself, and what fits beside back,
+/// forward and reload depends on it (SideBar.doorsUpLevel).
+@available(macOS 15.4, *)
+private struct PinsWatch: View {
+    @ObservedObject var extensions: Extensions
+    let heard: (Int) -> Void
+
+    @MainActor static func count(_ extensions: Extensions) -> Int {
+        extensions.installed.isEmpty ? 0 : extensions.buttons.filter(\.pinned).count
+    }
+
+    var body: some View {
+        Color.clear
+            .onChange(of: PinsWatch.count(extensions), initial: true) { _, now in heard(now) }
     }
 }

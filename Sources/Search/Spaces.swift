@@ -531,7 +531,8 @@ extension Browser {
         // folded away, or with the icon up beside the helm, at the bottom.
         // With a button per space there is no dot to say it: at the bottom.
         if prefs.showsSpaceButtons || folded && !peeking
-            || SideBar.doorsUp(prefs, width: prefs.columnWidth, fullScreen: fullScreen, spaces: SpaceButtons.count(prefs, spaces)) {
+            // Up with the dot left at the foot (DoorsUpSet), beside it.
+            || SideBar.doorsUpLevel(prefs, width: prefs.columnWidth, fullScreen: fullScreen, spaces: SpaceButtons.count(prefs, spaces)) == .all {
             announce(space.name)
         }
     }
