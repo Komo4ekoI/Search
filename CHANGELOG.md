@@ -35,6 +35,7 @@ in [ROADMAP.md](ROADMAP.md).
 
 ### Changed
 
+- With Narrow to icons on, the column stops at its narrowest with titles before it turns into the icon strip, and only a push a little further narrows it, with a tap on a Force Touch trackpad; pulled back out, the titles come back at the same line. A pull meant only to make the column narrow went straight on to icons. `swift test --filter NarrowStripTests`
 - A sidebar hidden until the pointer reaches the edge comes out sooner and is easier to find: it waits 0.05 s for the pointer to settle instead of 0.15 s, and the edge that brings it is 10 points wide instead of 6. The strip across the top, whose edge is the way to the menu bar, waits as before. ([#1279](https://github.com/driceroland/Search/issues/1279), idea 471)
 - The email field for news and the iPhone beta (the What's New card, the welcome and Settings › About) asks "Did you mean name@gmail.com?" under it when the domain looks like a typo (gmail.con, gnail.com, studio.cmo); the address in the line fills the field, and pressing Join again sends it as typed. Worked out on the Mac, nothing is sent to check it. `swift test --filter EmailTypoTests`
 - With the tabs across the top, what follows an open group (another group, or a tab in none such as ⌘T's) stands 10 points after its band instead of a tab's 2, so a tab after the group plainly isn't in it. Folded groups and the column are as before. `python3 Tests/group_band.py` (idea 953)
