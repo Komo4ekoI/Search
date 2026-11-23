@@ -83,7 +83,7 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
         web.alphaValue = 0
         web.load(URLRequest(url: url))
 
-        let stage = NSView(frame: NSRect(origin: .zero, size: ExtensionPopup.lastSize[context.uniqueIdentifier] ?? NSSize(width: 360, height: 240)))
+        let stage = NSView(frame: NSRect(origin: .zero, size: ExtensionPopup.lastSize(context.uniqueIdentifier) ?? NSSize(width: 360, height: 240)))
         stage.addSubview(web)
         let host = NSViewController()
         host.view = stage
@@ -108,6 +108,10 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
         Extensions.shared.controller.didOpenTab(page)
 
         shown = false
+        floor = ExtensionPopup.lastSize(context.uniqueIdentifier)
+        shrinking = nil
+        shrunkFrom = []
+        growsOnly = false
         placement = anchor.map(ExtensionPopup.describe) ?? ["from": "window"]
         if let anchor, anchor.window != nil {
             // Above or under the button, its arrow kept clear of the
@@ -162,9 +166,26 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
                 "onWindow": content.convert(content.bounds, to: nil).intersects(r)]
     }
 
-    /// Each extension's popup size, so the next opening starts there.
-    private static var lastSize: [String: NSSize] = [:]
+    /// Each extension's popup size, so the next opening starts there —
+    /// kept from one launch to the next: only in memory, every first
+    /// opening after a launch stood at 360 × 240 and moved to its size.
+    static func lastSize(_ id: String) -> NSSize? {
+        guard let pair = Store.settings.array(forKey: sizeKey(id)) as? [Double], pair.count == 2,
+              pair[0] >= 25, pair[1] >= 25 else { return nil }
+        return NSSize(width: min(800, pair[0]), height: min(600, pair[1]))
+    }
+    static func remember(_ size: NSSize, for id: String) {
+        Store.settings.set([Double(size.width), Double(size.height)], forKey: sizeKey(id))
+    }
+    private static func sizeKey(_ id: String) -> String { "extensions.popupSize.\(id)" }
+
     private var shown = false
+    /// The size this popup settled at last time, held as the least it is
+    /// for its first two seconds. Opened cold, a page isn't built when it
+    /// is first measured: Bitwarden sets its width from a script, and came
+    /// out 35 points wide, was shown so, and widened to its 380 a quarter
+    /// of a second later. Smaller for good, it is followed down after that.
+    private var floor: NSSize?
 
     /// The page, at the popover's size, in view.
     private func reveal() {
@@ -275,6 +296,15 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
           d.style.setProperty("min-height", "0", "important");
           h = d.getBoundingClientRect().height;
         }
+        // What overflows the body counts, as Chrome counts it: Shazam's
+        // popup is a 200-point block its list of songs hangs out of, the
+        // body as tall as the block, and the list was never in view.
+        const b = document.body;
+        if (b) {
+          const reach = b.getBoundingClientRect().top - d.getBoundingClientRect().top + b.scrollHeight
+            + (parseFloat(getComputedStyle(b).marginBottom) || 0);
+          if (reach > h) h = reach;
+        }
         return h;
       };
       let h = lay();
@@ -298,29 +328,42 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
     }
 
     /// Measured while still the 25-point square and unseen, then shown at
-    /// the size found.
+    /// the size found, or the size it settled at last time if larger.
     private func firstMeasure() {
         guard let web, !shown else { return }
         web.evaluateJavaScript("(\(ExtensionPopup.preferred))()") { [weak self] value, _ in
             MainActor.assumeIsolated {
                 guard let self, web === self.web, !self.shown else { return }
                 guard let pair = value as? [Double], pair.count == 2 else { return }
-                self.apply(NSSize(width: pair[0], height: pair[1]))
+                self.apply(self.floored(NSSize(width: pair[0], height: pair[1])), remember: false)
             }
         }
     }
 
-    private func apply(_ size: NSSize) {
+    /// No smaller than the size it settled at last time.
+    private func floored(_ size: NSSize) -> NSSize {
+        guard let floor else { return size }
+        return NSSize(width: max(size.width, floor.width), height: max(size.height, floor.height))
+    }
+
+    /// `remember`: what it is kept at for next time. Not while the page
+    /// may still be building: a measure taken then is no size to start at.
+    private func apply(_ size: NSSize, remember: Bool = true) {
         guard let popover else { return }
         if abs(size.width - popover.contentSize.width) > 1 || abs(size.height - popover.contentSize.height) > 1 {
+            // Unseen yet, it goes to its size at once: animated, the empty
+            // popover was seen growing in steps as the page built itself.
+            let animates = popover.animates
+            if !shown { popover.animates = false }
             // The popover takes its size from its view controller, and goes
             // back to it: both are told.
             popover.contentViewController?.preferredContentSize = size
             popover.contentSize = size
             popover.contentViewController?.view.setFrameSize(size)
             if shown { web?.frame = NSRect(origin: .zero, size: size) }
+            popover.animates = animates
         }
-        if let id = extensionID { ExtensionPopup.lastSize[id] = size }
+        if remember, let id = extensionID { ExtensionPopup.remember(size, for: id) }
         reveal()
     }
 
@@ -347,8 +390,9 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
 
     /// Measured again as the page builds itself, the way Chrome measures on
     /// each layout: for its first two seconds the popup follows it either
-    /// way, after that it only grows — so a page that settles doesn't set
-    /// it rocking.
+    /// way at once, after that larger at once and smaller only once two
+    /// measures agree (follow(to:from:)) — so a page that settles doesn't
+    /// set it rocking.
     private var ticks = 0
     private func grow() {
         guard shown, let web, let popover else { return }
@@ -357,25 +401,65 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
             web.evaluateJavaScript("(\(ExtensionPopup.preferred))()") { [weak self] value, _ in
                 MainActor.assumeIsolated {
                     guard let self, let pair = value as? [Double], pair.count == 2 else { return }
-                    let wanted = NSSize(width: pair[0], height: pair[1])
+                    let measured = NSSize(width: pair[0], height: pair[1])
+                    // Two seconds in, the page has built itself: what it
+                    // measures now is its size, kept for next time, and no
+                    // longer held up by last time's.
+                    let settled = self.ticks >= 8
+                    if settled {
+                        self.floor = nil
+                        if let id = self.extensionID { ExtensionPopup.remember(measured, for: id) }
+                    }
+                    let wanted = self.floored(measured)
                     let now = popover.contentSize
-                    if abs(wanted.width - now.width) > 2 || abs(wanted.height - now.height) > 2 { self.apply(wanted) }
+                    if abs(wanted.width - now.width) > 2 || abs(wanted.height - now.height) > 2 { self.apply(wanted, remember: false) }
                 }
             }
             return
         }
-        // after its first six seconds, once a second is enough to follow it.
+        // After its first six seconds, once a second is enough to follow it.
         if ticks > 24, ticks % 4 != 0 { return }
-        // a width the page names for itself, remembered as the first measure does, is followed both ways:
-        // Bitwarden's narrow setting shrinks it.
-        web.evaluateJavaScript("[\(ExtensionPopup.reach)('width'), (() => { const d = document.documentElement; return d && d.scrollHeight > d.clientHeight ? d.scrollHeight : 0; })(), (() => { const m = window.__searchSizing || (window.__searchSizing = {}), d = document.documentElement, v = document.compatMode === 'BackCompat' ? document.body : d, w = d.getBoundingClientRect().width, gutter = innerWidth - v.clientWidth; if (Math.abs(w - v.clientWidth) > 1) return (m.w = w) + gutter; return m.w && Math.abs(m.w - v.clientWidth) <= 1 ? m.w + gutter : 0; })()]") { value, _ in
+        // Measured as the first two seconds measure it, and followed both
+        // ways, as Chrome follows a popup on every layout: grown only, a
+        // button in the popup that shows less (or swaps a list for a short
+        // form) left it standing at its old size, and one that showed more
+        // in a part with its own scroll bar never grew it either.
+        web.evaluateJavaScript("(\(ExtensionPopup.preferred))()") { [weak self] value, _ in
             MainActor.assumeIsolated {
-                guard let pair = value as? [Double], pair.count == 3 else { return }
-                let now = popover.contentSize
-                let width = pair[2] > 0 ? max(25, pair[2].rounded(.up)) : max(now.width, pair[0])
-                let wanted = NSSize(width: min(800, width), height: min(600, max(now.height, pair[1])))
-                if wanted != now { self.apply(wanted) }
+                guard let self, web === self.web, let pair = value as? [Double], pair.count == 2 else { return }
+                self.follow(to: NSSize(width: pair[0], height: pair[1]), from: popover.contentSize)
             }
+        }
+    }
+
+    /// A smaller size seen once, waiting for the next measure to say it too.
+    private var shrinking: NSSize?
+    /// Sizes it went down from: back up to one of them, the page rocks.
+    private var shrunkFrom: [NSSize] = []
+    /// Set once the page has rocked: from then on it only grows, as before.
+    private var growsOnly = false
+
+    /// Larger, at once; smaller, once two measures in a row say so — a
+    /// page that lays itself out to the room it has would otherwise set the
+    /// popup rocking — and never again once it has rocked.
+    private func follow(to wanted: NSSize, from now: NSSize) {
+        func near(_ a: NSSize, _ b: NSSize) -> Bool { abs(a.width - b.width) <= 2 && abs(a.height - b.height) <= 2 }
+        guard !near(wanted, now) else { shrinking = nil; return }
+        let grows = wanted.width > now.width + 2 || wanted.height > now.height + 2
+        if grows {
+            shrinking = nil
+            if shrunkFrom.contains(where: { near($0, wanted) }) { growsOnly = true }
+            // Grown one way, kept as it is the other until two measures agree.
+            apply(NSSize(width: max(wanted.width, now.width), height: max(wanted.height, now.height)))
+            return
+        }
+        guard !growsOnly else { return }
+        if let seen = shrinking, near(seen, wanted) {
+            shrinking = nil
+            shrunkFrom.append(now)
+            apply(wanted)
+        } else {
+            shrinking = wanted
         }
     }
 
