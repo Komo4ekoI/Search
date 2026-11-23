@@ -43,6 +43,8 @@ final class FollowFileTests: XCTestCase {
             "tabClickAddressOnly",
             // Which buttons go up with Buttons at the top.
             "doorsUpSet",
+            // The bookmarks bar as icons only.
+            "bookmarksIconsOnly",
         ])
     }
 
