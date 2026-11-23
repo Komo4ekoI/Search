@@ -83,11 +83,16 @@ enum PopoverSide {
     }
 
     /// `move` cut down so the arrow still points at the `size` it hangs
-    /// from, at most to its edge: where the arrow can't stand clear of the
-    /// corner without leaving the button, a corner it is.
+    /// from, short of its edge by a point: where the arrow can't stand clear
+    /// of the corner without leaving the button, a corner it is. Moved to
+    /// the very edge, the rect only touched the button, and the list behind
+    /// the puzzle in the screen's corner still shut as it opened.
     static func kept(_ move: CGVector, on size: CGSize) -> CGVector {
-        CGVector(dx: min(max(move.dx, -size.width / 2), size.width / 2),
-                 dy: min(max(move.dy, -size.height / 2), size.height / 2))
+        func cut(_ value: CGFloat, _ length: CGFloat) -> CGFloat {
+            let most = max(length / 2 - 1, 0)
+            return min(max(value, -most), most)
+        }
+        return CGVector(dx: cut(move.dx, size.width), dy: cut(move.dy, size.height))
     }
 
     /// The popover without its arrow, or with it again. NSPopover has no
