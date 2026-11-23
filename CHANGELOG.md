@@ -47,6 +47,7 @@ in [ROADMAP.md](ROADMAP.md).
 
 ### Fixed
 
+- With the column hidden until the pointer reaches the edge, pulling its edge while it is out over the page no longer sends it away mid-pull: what counted as over it was the width it had before the pull, so pulled wider, or out of the icon strip, the pointer was past it and the column slid off the window.
 - An extension's popup opens at its size the first time after a launch, instead of as a narrow strip that widens a moment later: Bitwarden came in 35 points wide, measured before its script had set its width. The size it settles at is kept from one launch to the next, where it was kept only until Search quit.
 - An extension's popup follows what it shows both ways while it is open, as in Chrome: a button in it that shows less makes it smaller, where after its first two seconds it only ever grew, and what hangs out below the page's body counts, so Shazam's list of songs makes it taller instead of scrolling inside a popup 200 points tall.
 - Extensions whose content scripts name narrower paths of a site they already have run each script once again: Enhancer for YouTube, which asks for youtube.com and has scripts for its /embed/, /live_chat and /shorts/ pages too, ran four times on every YouTube page, so its player buttons showed four times and one click on Options opened four tabs. Thanks [@Jeromehouseboat](https://github.com/Jeromehouseboat) ([#1465](https://github.com/driceroland/Search/issues/1465)) `python3 Tests/extension_path_grants.py`
