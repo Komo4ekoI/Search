@@ -662,6 +662,16 @@ struct SettingsPanel: View {
                 get: { prefs.doorsUp },
                 set: { on in withAnimation(Motion.glide) { prefs.doorsUp = on } }
             ))
+        case "sidebar.doorsUpSet":
+            Picker("", selection: Binding(
+                get: { prefs.doorsUpSet },
+                set: { set in withAnimation(Motion.glide) { prefs.doorsUpSet = set } }
+            )) {
+                ForEach(DoorsUpSet.allCases) { Text($0.title).tag($0) }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .fixedSize()
         case "helm.shown":
             Ticks(items: [("Back", Binding(get: { !prefs.hidesBack }, set: { on in withAnimation(Motion.glide) { prefs.hidesBack = !on } })),
                           ("Forward", Binding(get: { !prefs.hidesForward }, set: { on in withAnimation(Motion.glide) { prefs.hidesForward = !on } })),

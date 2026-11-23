@@ -41,6 +41,8 @@ final class FollowFileTests: XCTestCase {
             "bookmarksInSidebar",
             // A click on the tab you're on edits its address only (idea 951).
             "tabClickAddressOnly",
+            // Which buttons go up with Buttons at the top.
+            "doorsUpSet",
         ])
     }
 

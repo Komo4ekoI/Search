@@ -2516,10 +2516,18 @@ struct ExtensionSlot: View {
     /// list hung from each, the second shut the first as a click outside it,
     /// and that, through the flag, itself (as FetchDoor.live).
     var live = true
+    /// The pinned extensions' buttons beside the puzzle. With Buttons at
+    /// the top, some ways of choosing them leave the pinned ones at the
+    /// foot and take only the puzzle up (DoorsUpSet).
+    var pins = true
+    /// The puzzle and its list here at all — off where only the pinned
+    /// ones were left, the list hanging from the puzzle elsewhere.
+    var menu = true
 
     var body: some View {
         if #available(macOS 15.4, *) {
-            ExtensionButtons(browser: browser, extensions: .shared, edge: edge, room: room, puzzle: puzzle, live: live)
+            ExtensionButtons(browser: browser, extensions: .shared, edge: edge, room: room, puzzle: puzzle, live: live,
+                             pins: pins, menu: menu)
         }
     }
 }
@@ -2532,33 +2540,37 @@ private struct ExtensionButtons: View {
     var room: Int?
     var puzzle = true
     var live = true
+    var pins = true
+    var menu = true
 
     var body: some View {
         if !extensions.installed.isEmpty {
             HStack(spacing: 2) {
-                ForEach(extensions.buttons.filter(\.pinned).prefix(room ?? .max)) { button in
+                ForEach(pins ? Array(extensions.buttons.filter(\.pinned).prefix(room ?? .max)) : []) { button in
                     ActionButton(button: button) { extensions.press(button.id, in: browser) }
                         .background(Anchor(id: button.id, browser: browser, live: live))
                         .contextMenu { ExtensionActions(id: button.id, name: button.name, browser: browser, extensions: extensions) }
                 }
-                let key = Extensions.menuKey(browser)
-                Door(icon: "puzzlepiece.extension", on: extensions.menuOwner == key, help: "Extensions", nudge: 1) {
-                    extensions.menuOwner = extensions.menuOwner == key ? nil : key
+                if menu {
+                    let key = Extensions.menuKey(browser)
+                    Door(icon: "puzzlepiece.extension", on: extensions.menuOwner == key, help: "Extensions", nudge: 1) {
+                        extensions.menuOwner = extensions.menuOwner == key ? nil : key
+                    }
+                    .background(Anchor(id: Extensions.menuAnchor, browser: browser, live: live))
+                    // This window's list only: closing, it lets go of the flag
+                    // only if the flag is still its own. Hung from the copy
+                    // that shows only.
+                    .popover(isPresented: Binding(get: { live && extensions.menuOwner == key },
+                                                  set: { if !$0, extensions.menuOwner == key { extensions.menuOwner = nil } }),
+                             hangingFrom: edge) {
+                        ExtensionMenu(browser: browser, extensions: extensions)
+                    }
+                    // Hidden, it stays as a point to hang the list and popups
+                    // from: an extension's own key still opens them.
+                    .opacity(puzzle ? 1 : 0)
+                    .frame(width: puzzle ? nil : 0)
+                    .allowsHitTesting(puzzle)
                 }
-                .background(Anchor(id: Extensions.menuAnchor, browser: browser, live: live))
-                // This window's list only: closing, it lets go of the flag
-                // only if the flag is still its own. Hung from the copy
-                // that shows only.
-                .popover(isPresented: Binding(get: { live && extensions.menuOwner == key },
-                                              set: { if !$0, extensions.menuOwner == key { extensions.menuOwner = nil } }),
-                         hangingFrom: edge) {
-                    ExtensionMenu(browser: browser, extensions: extensions)
-                }
-                // Hidden, it stays as a point to hang the list and popups
-                // from: an extension's own key still opens them.
-                .opacity(puzzle ? 1 : 0)
-                .frame(width: puzzle ? nil : 0)
-                .allowsHitTesting(puzzle)
             }
         }
     }

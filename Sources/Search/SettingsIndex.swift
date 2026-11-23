@@ -249,6 +249,11 @@ enum SettingsIndex {
         .init(id: "sidebar.doorsUp", group: "tablook", icon: "rectangle.topthird.inset.filled",
               title: "Buttons at the top", detail: "Bookmarks, extensions and downloads beside back, forward and reload, when they fit",
               keys: ["sidebar.doorsUp"], words: ["minimal", "toolbar", "footer", "bottom", "icons", "clean"], parent: "tabs.layout"),
+        .init(id: "sidebar.doorsUpSet", group: "tablook", icon: "square.grid.3x1.below.line.grid.1x2",
+              title: "Buttons that go up", detail: "Which of them sit at the top; the rest stay under the column",
+              more: "Extensions and bookmarks leaves your pinned extensions, downloads, spaces and profile at the foot. With nothing left there, the foot goes.",
+              keys: ["sidebar.doorsUpSet"], words: ["toolbar", "footer", "bottom", "extensions", "puzzle", "pinned", "bookmarks", "downloads", "top"],
+              parent: "sidebar.doorsUp"),
         .init(id: "helm.shown", group: "tablook", icon: "arrow.left.arrow.right",
               title: "Back, forward and reload", detail: "Untick any you reach with the keys: the tabs get the room",
               more: "⌘[, ⌘] and ⌘R work whichever are shown. In the column they sit beside the window's buttons; across the top, at the row's end.",
@@ -763,6 +768,7 @@ enum SettingsIndex {
         case "pages.dusk": return prefs.look != .light
         case "inspector.dark": return prefs.look != .dark
         case "sidebar.roomy", "sidebar.player", "sidebar.doorsUp", "sidebar.foldButton", "sidebar.narrowIcons": return prefs.sidebar && !prefs.sideIcons
+        case "sidebar.doorsUpSet": return prefs.sidebar && !prefs.sideIcons && prefs.doorsUp
         case "sidebar.hides", "sidebar.slides", "layout.cards", "pins.list": return prefs.sidebar
         case "layout.cardsFullScreen": return prefs.sidebar && prefs.cards
         case "address.width": return prefs.addressLine && !prefs.sidebar
@@ -796,6 +802,7 @@ enum SettingsIndex {
         case "inspector.dark": return "Only while Search isn't set to Dark"
         case "toolbar.left", "tabs.compact", "address.width": return "Only with the tabs across the top"
         case "sidebar.roomy", "sidebar.doorsUp", "sidebar.foldButton", "sidebar.narrowIcons": return "Only with titles in the column"
+        case "sidebar.doorsUpSet": return "Only with Buttons at the top on"
         case "tabs.liquid": return LiquidTab.available ? "Only with titles in the column, or the tabs across the top" : "Liquid Glass needs macOS 26"
         case "window.glass.style": return GlassStyle.liquidAvailable ? "Only with Glass on" : "Liquid Glass needs macOS 26"
         case "window.glass.clear", "window.glass.grain": return "With spaces on, in the space's menu › Colour…"
