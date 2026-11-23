@@ -83,7 +83,7 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
         web.alphaValue = 0
         web.load(URLRequest(url: url))
 
-        let stage = NSView(frame: NSRect(origin: .zero, size: ExtensionPopup.lastSize[context.uniqueIdentifier] ?? NSSize(width: 360, height: 240)))
+        let stage = NSView(frame: NSRect(origin: .zero, size: ExtensionPopup.lastSize(context.uniqueIdentifier) ?? NSSize(width: 360, height: 240)))
         stage.addSubview(web)
         let host = NSViewController()
         host.view = stage
@@ -108,6 +108,7 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
         Extensions.shared.controller.didOpenTab(page)
 
         shown = false
+        floor = ExtensionPopup.lastSize(context.uniqueIdentifier)
         placement = anchor.map(ExtensionPopup.describe) ?? ["from": "window"]
         if let anchor, anchor.window != nil {
             // Above or under the button, its arrow kept clear of the
@@ -162,9 +163,26 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
                 "onWindow": content.convert(content.bounds, to: nil).intersects(r)]
     }
 
-    /// Each extension's popup size, so the next opening starts there.
-    private static var lastSize: [String: NSSize] = [:]
+    /// Each extension's popup size, so the next opening starts there —
+    /// kept from one launch to the next: only in memory, every first
+    /// opening after a launch stood at 360 × 240 and moved to its size.
+    static func lastSize(_ id: String) -> NSSize? {
+        guard let pair = Store.settings.array(forKey: sizeKey(id)) as? [Double], pair.count == 2,
+              pair[0] >= 25, pair[1] >= 25 else { return nil }
+        return NSSize(width: min(800, pair[0]), height: min(600, pair[1]))
+    }
+    static func remember(_ size: NSSize, for id: String) {
+        Store.settings.set([Double(size.width), Double(size.height)], forKey: sizeKey(id))
+    }
+    private static func sizeKey(_ id: String) -> String { "extensions.popupSize.\(id)" }
+
     private var shown = false
+    /// The size this popup settled at last time, held as the least it is
+    /// for its first two seconds. Opened cold, a page isn't built when it
+    /// is first measured: Bitwarden sets its width from a script, and came
+    /// out 35 points wide, was shown so, and widened to its 380 a quarter
+    /// of a second later. Smaller for good, it is followed down after that.
+    private var floor: NSSize?
 
     /// The page, at the popover's size, in view.
     private func reveal() {
@@ -298,29 +316,42 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
     }
 
     /// Measured while still the 25-point square and unseen, then shown at
-    /// the size found.
+    /// the size found, or the size it settled at last time if larger.
     private func firstMeasure() {
         guard let web, !shown else { return }
         web.evaluateJavaScript("(\(ExtensionPopup.preferred))()") { [weak self] value, _ in
             MainActor.assumeIsolated {
                 guard let self, web === self.web, !self.shown else { return }
                 guard let pair = value as? [Double], pair.count == 2 else { return }
-                self.apply(NSSize(width: pair[0], height: pair[1]))
+                self.apply(self.floored(NSSize(width: pair[0], height: pair[1])), remember: false)
             }
         }
     }
 
-    private func apply(_ size: NSSize) {
+    /// No smaller than the size it settled at last time.
+    private func floored(_ size: NSSize) -> NSSize {
+        guard let floor else { return size }
+        return NSSize(width: max(size.width, floor.width), height: max(size.height, floor.height))
+    }
+
+    /// `remember`: what it is kept at for next time. Not while the page
+    /// may still be building: a measure taken then is no size to start at.
+    private func apply(_ size: NSSize, remember: Bool = true) {
         guard let popover else { return }
         if abs(size.width - popover.contentSize.width) > 1 || abs(size.height - popover.contentSize.height) > 1 {
+            // Unseen yet, it goes to its size at once: animated, the empty
+            // popover was seen growing in steps as the page built itself.
+            let animates = popover.animates
+            if !shown { popover.animates = false }
             // The popover takes its size from its view controller, and goes
             // back to it: both are told.
             popover.contentViewController?.preferredContentSize = size
             popover.contentSize = size
             popover.contentViewController?.view.setFrameSize(size)
             if shown { web?.frame = NSRect(origin: .zero, size: size) }
+            popover.animates = animates
         }
-        if let id = extensionID { ExtensionPopup.lastSize[id] = size }
+        if remember, let id = extensionID { ExtensionPopup.remember(size, for: id) }
         reveal()
     }
 
@@ -357,9 +388,18 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
             web.evaluateJavaScript("(\(ExtensionPopup.preferred))()") { [weak self] value, _ in
                 MainActor.assumeIsolated {
                     guard let self, let pair = value as? [Double], pair.count == 2 else { return }
-                    let wanted = NSSize(width: pair[0], height: pair[1])
+                    let measured = NSSize(width: pair[0], height: pair[1])
+                    // Two seconds in, the page has built itself: what it
+                    // measures now is its size, kept for next time, and no
+                    // longer held up by last time's.
+                    let settled = self.ticks >= 8
+                    if settled {
+                        self.floor = nil
+                        if let id = self.extensionID { ExtensionPopup.remember(measured, for: id) }
+                    }
+                    let wanted = self.floored(measured)
                     let now = popover.contentSize
-                    if abs(wanted.width - now.width) > 2 || abs(wanted.height - now.height) > 2 { self.apply(wanted) }
+                    if abs(wanted.width - now.width) > 2 || abs(wanted.height - now.height) > 2 { self.apply(wanted, remember: false) }
                 }
             }
             return
