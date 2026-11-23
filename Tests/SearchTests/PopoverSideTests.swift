@@ -249,4 +249,21 @@ final class PopoverSideTests: XCTestCase {
         // In the corner it hangs above, moved along: off a 26-point button.
         XCTAssertTrue(PopoverSide.strays(PopoverSide.placement(of: button(23, 20), in: screen, beside: true).move, from: size))
     }
+
+    /// A list hung from a moved rect (HangingPopover) is moved no further
+    /// than keeps the rect on its button: wholly off it, NSPopover showed
+    /// nothing and the puzzle's list shut as it opened.
+    func testAMoveIsKeptOnItsButton() {
+        let size = CGSize(width: 26, height: 26)
+        XCTAssertEqual(PopoverSide.kept(.zero, on: size), .zero)
+        XCTAssertEqual(PopoverSide.kept(CGVector(dx: 5, dy: -7), on: size), CGVector(dx: 5, dy: -7), "short of the edge, as it was")
+        XCTAssertEqual(PopoverSide.kept(CGVector(dx: clear - 23, dy: 0), on: size), CGVector(dx: 12, dy: 0), "the first button in the corner")
+        XCTAssertEqual(PopoverSide.kept(CGVector(dx: -40, dy: 40), on: size), CGVector(dx: -12, dy: 12), "by the screen's other edges")
+        XCTAssertEqual(PopoverSide.kept(CGVector(dx: clear - 23, dy: 0), on: CGSize(width: 200, height: 26)),
+                       CGVector(dx: clear - 23, dy: 0), "a tab is wide enough")
+        // In the corner it hangs above, moved along: kept on the button.
+        let kept = PopoverSide.kept(PopoverSide.placement(of: button(23, 20), in: screen, beside: true).move, on: size)
+        XCTAssertFalse(PopoverSide.strays(kept, from: size))
+        XCTAssertNotEqual(kept, .zero)
+    }
 }

@@ -2511,10 +2511,15 @@ struct ExtensionSlot: View {
     /// The puzzle with the list; Settings can hide it, leaving the pinned
     /// extensions' buttons (idea 426).
     var puzzle = true
+    /// Whether this is the copy the person can see. With the doors up or at
+    /// the foot, the column draws both rows and hides the one not in use: a
+    /// list hung from each, the second shut the first as a click outside it,
+    /// and that, through the flag, itself (as FetchDoor.live).
+    var live = true
 
     var body: some View {
         if #available(macOS 15.4, *) {
-            ExtensionButtons(browser: browser, extensions: .shared, edge: edge, room: room, puzzle: puzzle)
+            ExtensionButtons(browser: browser, extensions: .shared, edge: edge, room: room, puzzle: puzzle, live: live)
         }
     }
 }
@@ -2526,23 +2531,25 @@ private struct ExtensionButtons: View {
     let edge: Edge
     var room: Int?
     var puzzle = true
+    var live = true
 
     var body: some View {
         if !extensions.installed.isEmpty {
             HStack(spacing: 2) {
                 ForEach(extensions.buttons.filter(\.pinned).prefix(room ?? .max)) { button in
                     ActionButton(button: button) { extensions.press(button.id, in: browser) }
-                        .background(Anchor(id: button.id, browser: browser))
+                        .background(Anchor(id: button.id, browser: browser, live: live))
                         .contextMenu { ExtensionActions(id: button.id, name: button.name, browser: browser, extensions: extensions) }
                 }
                 let key = Extensions.menuKey(browser)
                 Door(icon: "puzzlepiece.extension", on: extensions.menuOwner == key, help: "Extensions", nudge: 1) {
                     extensions.menuOwner = extensions.menuOwner == key ? nil : key
                 }
-                .background(Anchor(id: Extensions.menuAnchor, browser: browser))
+                .background(Anchor(id: Extensions.menuAnchor, browser: browser, live: live))
                 // This window's list only: closing, it lets go of the flag
-                // only if the flag is still its own.
-                .popover(isPresented: Binding(get: { extensions.menuOwner == key },
+                // only if the flag is still its own. Hung from the copy
+                // that shows only.
+                .popover(isPresented: Binding(get: { live && extensions.menuOwner == key },
                                               set: { if !$0, extensions.menuOwner == key { extensions.menuOwner = nil } }),
                          hangingFrom: edge) {
                     ExtensionMenu(browser: browser, extensions: extensions)
@@ -2581,16 +2588,31 @@ private struct ExtensionButtons: View {
     private struct Anchor: NSViewRepresentable {
         let id: String
         var browser: Browser?
+        /// The hidden copy's view isn't one a popup should hang from.
+        var live = true
+
+        final class Coordinator { var live = false }
+        func makeCoordinator() -> Coordinator { Coordinator() }
+
         func makeNSView(context: Context) -> NSView {
             let view = NSView()
-            if let target = browser ?? Extensions.shared.browser {
-                Extensions.shared.registerAnchor(view, for: id, in: target)
-            }
+            context.coordinator.live = live
+            if live { register(view) }
             return view
         }
         // The outgoing layout can still update during a transition. It must
-        // not replace the new layout's anchor with a view about to disappear.
-        func updateNSView(_ view: NSView, context: Context) {}
+        // not replace the new layout's anchor with a view about to disappear:
+        // only a copy that has just become the one shown takes it back.
+        func updateNSView(_ view: NSView, context: Context) {
+            if live, !context.coordinator.live { register(view) }
+            context.coordinator.live = live
+        }
+
+        private func register(_ view: NSView) {
+            if let target = browser ?? Extensions.shared.browser {
+                Extensions.shared.registerAnchor(view, for: id, in: target)
+            }
+        }
     }
 }
 
