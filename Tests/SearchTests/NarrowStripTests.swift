@@ -61,15 +61,21 @@ final class NarrowStripTests: XCTestCase {
         // Off: clamped as it always was, never the strip.
         XCTAssertEqual(SideBar.held(100, narrows: false).width, Metrics.sideMin)
         XCTAssertFalse(SideBar.held(100, narrows: false).narrow)
-        // On: under the line is the strip, at it and past it titles.
-        XCTAssertTrue(SideBar.held(Metrics.narrowLine - 1, narrows: true).narrow)
-        XCTAssertNil(SideBar.held(Metrics.narrowLine - 1, narrows: true).width)
+        // On, with titles: stopped at the line, the strip only a push past it.
+        XCTAssertFalse(SideBar.held(Metrics.narrowLine - 1, narrows: true).narrow, "stopped at the line")
+        XCTAssertEqual(SideBar.held(Metrics.narrowLine - 1, narrows: true).width, Metrics.narrowLine)
+        XCTAssertFalse(SideBar.held(Metrics.narrowLine - SideBar.narrowPush, narrows: true).narrow)
+        XCTAssertTrue(SideBar.held(Metrics.narrowLine - SideBar.narrowPush - 1, narrows: true).narrow, "pushed past it")
+        XCTAssertNil(SideBar.held(Metrics.narrowLine - SideBar.narrowPush - 1, narrows: true).width)
         XCTAssertEqual(SideBar.held(Metrics.narrowLine, narrows: true).width, Metrics.narrowLine)
         XCTAssertEqual(SideBar.held(1000, narrows: true).width, Metrics.sideMax)
+        // As the strip, titles come back at the line, not before.
+        XCTAssertTrue(SideBar.held(Metrics.narrowLine - 1, narrows: true, narrowed: true).narrow)
+        XCTAssertFalse(SideBar.held(Metrics.narrowLine, narrows: true, narrowed: true).narrow)
         // Taken from the strip, a short pull brings titles back.
         let fromStrip = Metrics.narrowLine - SideBar.stripPull
-        XCTAssertTrue(SideBar.held(fromStrip + SideBar.stripPull - 1, narrows: true).narrow)
-        XCTAssertFalse(SideBar.held(fromStrip + SideBar.stripPull, narrows: true).narrow)
+        XCTAssertTrue(SideBar.held(fromStrip + SideBar.stripPull - 1, narrows: true, narrowed: true).narrow)
+        XCTAssertFalse(SideBar.held(fromStrip + SideBar.stripPull, narrows: true, narrowed: true).narrow)
     }
 
     func testIconsOnlyIsNotTheStrip() {
