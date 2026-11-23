@@ -342,6 +342,14 @@ struct Fold: View {
     @State private var arriving: DispatchWorkItem?
     /// The pointer is over the column.
     @State private var inside = false
+    /// The column's edge is held: the column out over the page stays out
+    /// while it is pulled, into the strip and back out of it too. It went
+    /// back in mid-pull: what counted as over it was the width it had when
+    /// picked up — written only once the edge is let go, and the strip's
+    /// narrow one when pulled out of it — so the pointer pulling it wider
+    /// was past it, and the column slid away under the pull, off the
+    /// window, and came back out at the edge.
+    @State private var edgeHeld = false
     @State private var pointer = Pointer()
 
     /// How near the edge the pointer has to be.
@@ -357,6 +365,9 @@ struct Fold: View {
     /// leaves as Dia's does. Arc doesn't wait at all, which loses the column
     /// to a hand that overshoots on the way back in.
     private static let grace: TimeInterval = 0.065
+    /// How far past the column its edge's grip reaches (SideBar.edge: 9
+    /// points wide, set 4 out over the page).
+    static let gripReach: CGFloat = 9
     /// How far down from the top, in full screen, the edge leaves the
     /// window's buttons alone: the menu bar and the title bar macOS brings
     /// down with it.
@@ -438,7 +449,8 @@ struct Fold: View {
                     // it does beside the page's card (see CardEdge), or its
                     // own white where the page is no card.
                     // Away exactly when the lights are, which ride with it.
-                    SideBar(browser: browser, prefs: prefs, onFrame: browser.asCards, onDrag: onDrag)
+                    SideBar(browser: browser, prefs: prefs, onFrame: browser.asCards, onDrag: onDrag,
+                            onHold: { held in if edgeHeld != held { edgeHeld = held } })
                         .frame(maxHeight: .infinity, alignment: .top)
                         .modifier(FoldShadow(x: onRight ? -4 : 4, behind: true,
                                              strength: browser.folded && browser.peeking ? 1 : 0,
@@ -535,6 +547,7 @@ struct Fold: View {
     /// it along, so it holds the column out wherever the pointer has gone,
     /// on the way to a bookmark over the page included (#88).
     private var holding: Bool {
+        if edgeHeld { return true }
         if browser.bookmarksOpen { return true }
         if #available(macOS 15.4, *), Extensions.shared.menuOpen { return true }
         return false
@@ -602,7 +615,9 @@ struct Fold: View {
             let top = NSWindow.windowNumber(at: screen, belowWindowWithWindowNumber: 0)
             let onWindow = top == window.windowNumber
             let onOwnPanel = !onWindow && NSApp.windows.contains { $0.windowNumber == top }
-            let reach = prefs.sidebar ? prefs.columnWidth : Metrics.strip
+            // The column's edge, the grip just past it, counts as the
+            // column: let go there, the pointer is still on it.
+            let reach = prefs.sidebar ? prefs.columnWidth + Fold.gripReach : Metrics.strip
             // An extension's popup hangs from its button in the column: the
             // column stays out while it is up, or the popup is left hanging
             // from nothing (see ExtensionPopup).

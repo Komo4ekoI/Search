@@ -40,6 +40,11 @@ struct SideBar: View {
     /// The width while the edge is held, nil once it is let go, for the page
     /// beside the column to follow (see HeldEdges).
     var onDrag: (CGFloat?) -> Void = { _ in }
+    /// Whether the edge is held at all, from picking it up to letting it
+    /// go. Not onDrag's width: that is nil too while the edge, still held,
+    /// has narrowed the column to the strip, and the column out over the
+    /// page (Fold) took that for let go and slid away under the pull.
+    var onHold: (Bool) -> Void = { _ in }
     @State private var onEdge = false
 
     /// A pin, picked up out of the grid — a separate state from the loose
@@ -343,6 +348,8 @@ struct SideBar: View {
             // Into icons only or out of it, the doors are simply where they go.
             drawnUp = nil
         }
+        // Picked up and let go, however it ends (onEnded, gone, ⌘S).
+        .onChange(of: grabbed != nil) { _, held in onHold(held) }
         .environment(\.greys, greys)
         .frame(width: width)
         .frame(maxHeight: .infinity)
